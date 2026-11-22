@@ -1,0 +1,23 @@
+# Variáveis de ambiente e senhas (bloqueia em qualquer subpasta, mas permite .env.example)
+.env
+.env.*
+!.env.example
+
+# Python / Backend
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
+
+# Editores e Sistema Operacional
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

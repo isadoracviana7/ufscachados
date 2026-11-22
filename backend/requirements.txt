@@ -1,0 +1,9 @@
+# LISTA DE BIBLIOTECAS EXTERNAS (UFSCAchados)
+fastapi             # Framework web para criar endpoints/rotas e gerar interface automática (/docs) no navegador
+uvicorn             # Servidor web ASGI que conecta o FastAPI e escuta requisições HTTP localmente
+sqlalchemy          # ORM para mapear as 15 tabelas do banco, gerenciar conexões e executar operações/consultas SQL
+psycopg2-binary     # Driver nativo de comunicação entre Python/SQLAlchemy e o PostgreSQL
+pydantic[email]     # Valida os dados de entrada/saída nos schemas (incluindo validação de EmailStr)
+python-dotenv       # Lê o arquivo oculto .env e carrega DATABASE_URL e GEMINI_API_KEY para o Python
+matplotlib          # Gera os gráficos em PNG a partir das consultas SQL analíticas (Req. 7.c)
+google-genai        # SDK oficial da API do Google Gemini para busca semântica (Req. 7.f)
