@@ -1,4 +1,4 @@
-from typing import List                                             # Permite tipar retornos como "uma lista de objetos"
+from typing import List, Union                                      # Permite tipar retornos como "uma lista de objetos" ou múltiplos schemas
 from fastapi import APIRouter, Depends, HTTPException, status
 # APIRouter: cria um mini_FastAPI modular para organizar rotas fora do main.py
 # Depends: injeta dependências automaticamente (como abrir e fechar a sessão do banco)
@@ -18,22 +18,26 @@ import schemas                                     # Classes Pydantic que valida
 router = APIRouter()
 
 
+# Função auxiliar para verificar se um usuário é operador
+def verificar_se_e_operador(id_usuario: int, db: Session) -> bool:
+    if not id_usuario:
+        return False
+    op = db.query(models.Operador).filter(models.Operador.id_usuario == id_usuario).first()
+    return op is not None
+
+
 # ==============================================================================
 # CRUD DE OBJETO (Entidade Central do Sistema)
 # ==============================================================================
 
 # CREATE (POST): Cadastra um novo objeto perdido/encontrado
-# response_model=schemas.ObjetoResponse define o filtro de saida, o objeto que sai do bd tem que passar pelo schema ObjetoResponse
-# Convertendo SQLAlchemy em JSON e removendo o campo detalhe_seguranca_oculto
-@router.post("/objetos", response_model=schemas.ObjetoResponse, status_code=status.HTTP_201_CREATED, tags=["Objetos"])      # Etiqueta de configuração
-def criar_objeto(objeto: schemas.ObjetoCreate, db: Session = Depends(get_db)):       # Recebe o JSON enviado pelo usuário e passa pelo Pydantic, e pede uma conexao exclusiva com o bd que fecha automaticamente no fim
-    # objeto.model_dump() converte o schema Pydantic em um dicionário Python.
-    # O operador ** desempacota esse dicionário nos atributos da classe ORM models.Objeto.
+@router.post("/objetos", response_model=schemas.ObjetoResponse, status_code=status.HTTP_201_CREATED, tags=["Objetos"])
+def criar_objeto(objeto: schemas.ObjetoCreate, db: Session = Depends(get_db)):
     novo_objeto = models.Objeto(**objeto.model_dump())
     try:
-        db.add(novo_objeto)         # Coloca o registro na fila de transação da sessão
-        db.commit()                 # Envia o comando INSERT INTO objeto ... definitivamente para o PostgreSQL
-        db.refresh(novo_objeto)     # Atualiza o objeto na memória com os dados confirmados pelo banco
+        db.add(novo_objeto)
+        db.commit()
+        db.refresh(novo_objeto)
 
         # MATCH AUTOMÁTICO POR SEMELHANÇA (Se for Item Encontrado - id_tipo == 1)
         if novo_objeto.id_tipo == 1:
@@ -44,12 +48,10 @@ def criar_objeto(objeto: schemas.ObjetoCreate, db: Session = Depends(get_db)):  
             ).all()
 
             if alertas_compativeis:
-                # Pega o próximo ID disponível para notificação de forma segura
                 prox_id_notif = (db.query(func.max(models.Notificacao.id_notificacao)).scalar() or 0) + 1
                 agora = datetime.now()
 
                 for idx, alerta in enumerate(alertas_compativeis):
-                    # Evita duplicar notificação idêntica
                     existe_notificacao = db.query(models.Notificacao).filter(
                         models.Notificacao.id_objeto == novo_objeto.id_objeto,
                         models.Notificacao.id_usuario == alerta.id_usuario_cadastro
@@ -69,28 +71,38 @@ def criar_objeto(objeto: schemas.ObjetoCreate, db: Session = Depends(get_db)):  
 
         return novo_objeto
     
-    # Se o id_objeto já existir ou alguma chave estrangeira não existir no banco:
     except IntegrityError:
-        db.rollback()        # Desfaz a transação quebrada para não travar a sessão do SQLAlchemy
+        db.rollback()
         raise HTTPException(
             status_code=400,
             detail="Erro de integridade: verifique se o id_objeto já existe ou se todas as chaves estrangeiras são válidas."
         )
 
 
-# READ ALL (GET): Lista todos os objetos cadastrados (SQL: SELECT * FROM objeto)
-@router.get("/objetos", response_model=List[schemas.ObjetoResponse], tags=["Objetos"])
-def listar_objetos(db: Session = Depends(get_db)):
-    return db.query(models.Objeto).all()
+# READ ALL (GET): Lista todos os objetos cadastrados (Oculta ou exibe o detalhe de segurança dependendo se é operador)
+@router.get("/objetos", response_model=List[Union[schemas.ObjetoOperadorResponse, schemas.ObjetoResponse]], tags=["Objetos"])
+def listar_objetos(id_usuario_logado: int = None, db: Session = Depends(get_db)):
+    objetos = db.query(models.Objeto).all()
+    e_operador = verificar_se_e_operador(id_usuario_logado, db)
+
+    if not e_operador:
+        for obj in objetos:
+            obj.detalhe_seguranca_oculto = None
+
+    return objetos
 
 
-# READ ONE (GET): Busca um único objeto pelo seu ID na URL (ex: /objetos/1)
-@router.get("/objetos/{id_objeto}", response_model=schemas.ObjetoResponse, tags=["Objetos"])
-def buscar_objeto(id_objeto: int, db: Session = Depends(get_db)):
-    # filter(...) monta o WHERE id_objeto = X; first() retorna o primeiro resultado ou None
+# READ ONE (GET): Busca um único objeto pelo seu ID na URL
+@router.get("/objetos/{id_objeto}", response_model=Union[schemas.ObjetoOperadorResponse, schemas.ObjetoResponse], tags=["Objetos"])
+def buscar_objeto(id_objeto: int, id_usuario_logado: int = None, db: Session = Depends(get_db)):
     objeto = db.query(models.Objeto).filter(models.Objeto.id_objeto == id_objeto).first()
     if not objeto:
         raise HTTPException(status_code=404, detail="Objeto não encontrado.")
+    
+    e_operador = verificar_se_e_operador(id_usuario_logado, db)
+    if not e_operador:
+        objeto.detalhe_seguranca_oculto = None
+
     return objeto
 
 
@@ -101,13 +113,11 @@ def atualizar_objeto(id_objeto: int, dados: schemas.ObjetoUpdate, db: Session = 
     if not objeto:
         raise HTTPException(status_code=404, detail="Objeto não encontrado.")
 
-    # exclude_unset=True pega APENAS os campos que o usuário realmente digitou no JSON,
-    # evitando sobrescrever com None os campos que não foram enviados na atualização.
     for campo, valor in dados.model_dump(exclude_unset=True).items():
-        setattr(objeto, campo, valor)  # Equivale a fazer objeto.campo = valor dinamicamente
+        setattr(objeto, campo, valor)
 
     try:
-        db.commit()              # Executa o UPDATE no PostgreSQL
+        db.commit()
         db.refresh(objeto)
         return objeto
     except IntegrityError:
@@ -115,14 +125,14 @@ def atualizar_objeto(id_objeto: int, dados: schemas.ObjetoUpdate, db: Session = 
         raise HTTPException(status_code=400, detail="Chave estrangeira inválida na atualização.")
 
 
-# DELETE (DELETE): Remove um objeto e, por cascata (configurado no models.py), suas imagens/notificações/reivindicações
+# DELETE (DELETE): Remove um objeto e, por cascata, suas imagens/notificações/reivindicações
 @router.delete("/objetos/{id_objeto}", tags=["Objetos"])
 def deletar_objeto(id_objeto: int, db: Session = Depends(get_db)):
     objeto = db.query(models.Objeto).filter(models.Objeto.id_objeto == id_objeto).first()
     if not objeto:
         raise HTTPException(status_code=404, detail="Objeto não encontrado.")
-    db.delete(objeto)            # Marca o registro para exclusão (DELETE FROM objeto WHERE id_objeto = X)
-    db.commit()                  # Confirma a remoção no banco
+    db.delete(objeto)
+    db.commit()
     return {"mensagem": f"Objeto {id_objeto} removido com sucesso."}
 
 
@@ -130,7 +140,6 @@ def deletar_objeto(id_objeto: int, db: Session = Depends(get_db)):
 # CRUD DE USUÁRIO E SUBCLASSES (Especialização 1:1)
 # ==============================================================================
 
-# Cadastra o registro base na tabela USUARIO (antes de especializar em Membro, Operador ou Visitante)
 @router.post("/usuarios", response_model=schemas.UsuarioResponse, status_code=status.HTTP_201_CREATED, tags=["Usuários e Perfis"])
 def criar_usuario(usuario: schemas.UsuarioCreate, db: Session = Depends(get_db)):
     novo = models.Usuario(**usuario.model_dump())
@@ -141,17 +150,14 @@ def criar_usuario(usuario: schemas.UsuarioCreate, db: Session = Depends(get_db))
         return novo
     except IntegrityError:
         db.rollback()
-        # Barra violação de PRIMARY KEY (id_usuario) ou UNIQUE (email, cpf)
         raise HTTPException(status_code=400, detail="ID, e-mail ou CPF já cadastrado no sistema.")
 
 
-# Lista todos os usuários cadastrados
 @router.get("/usuarios", response_model=List[schemas.UsuarioResponse], tags=["Usuários e Perfis"])
 def listar_usuarios(db: Session = Depends(get_db)):
     return db.query(models.Usuario).all()
 
 
-# Atualiza nome e/ou e-mail de um usuário
 @router.put("/usuarios/{id_usuario}", response_model=schemas.UsuarioResponse, tags=["Usuários e Perfis"])
 def atualizar_usuario(id_usuario: int, dados: schemas.UsuarioUpdate, db: Session = Depends(get_db)):
     usuario = db.query(models.Usuario).filter(models.Usuario.id_usuario == id_usuario).first()
@@ -170,7 +176,6 @@ def atualizar_usuario(id_usuario: int, dados: schemas.UsuarioUpdate, db: Session
         raise HTTPException(status_code=400, detail="E-mail duplicado.")
 
 
-# Remove um usuário (bloqueado pelo banco se ele já tiver cadastrado objetos ou reivindicações)
 @router.delete("/usuarios/{id_usuario}", tags=["Usuários e Perfis"])
 def deletar_usuario(id_usuario: int, db: Session = Depends(get_db)):
     usuario = db.query(models.Usuario).filter(models.Usuario.id_usuario == id_usuario).first()
@@ -185,7 +190,6 @@ def deletar_usuario(id_usuario: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Não é possível excluir usuário que possui objetos ou reivindicações vinculadas.")
     
 
-# Especializa um Usuario existente como MEMBRO_UFSC (exige id_usuario válido e matrícula única)
 @router.post("/usuarios/membro-ufsc", response_model=schemas.MembroUfscResponse, tags=["Usuários e Perfis"])
 def vincular_membro_ufsc(dados: schemas.MembroUfscCreate, db: Session = Depends(get_db)):
     membro = models.MembroUfsc(**dados.model_dump())
@@ -199,12 +203,11 @@ def vincular_membro_ufsc(dados: schemas.MembroUfscCreate, db: Session = Depends(
         raise HTTPException(status_code=400, detail="Usuário inexistente ou matrícula UFSC já vinculada.")
 
 
-# Lista todos os vínculos de Membro UFSC (Rota estática vem antes das rotas com {id_usuario})
 @router.get("/usuarios/membro-ufsc", response_model=List[schemas.MembroUfscResponse], tags=["Usuários e Perfis"])
 def listar_membros_ufsc(db: Session = Depends(get_db)):
     return db.query(models.MembroUfsc).all()
 
-# Atualiza a matrícula UFSC de um membro já vinculado
+
 @router.put("/usuarios/membro-ufsc/{id_usuario}", response_model=schemas.MembroUfscResponse, tags=["Usuários e Perfis"], summary="Atualizar matrícula de Membro UFSC")
 def atualizar_membro_ufsc(id_usuario: int, dados: schemas.MembroUfscUpdate, db: Session = Depends(get_db)):
     membro = db.query(models.MembroUfsc).filter(models.MembroUfsc.id_usuario == id_usuario).first()
@@ -220,7 +223,6 @@ def atualizar_membro_ufsc(id_usuario: int, dados: schemas.MembroUfscUpdate, db: 
         raise HTTPException(status_code=400, detail="Matrícula UFSC já pertencente a outro usuário.")
 
 
-# Remove o vínculo de Membro UFSC (mantendo o registro base na tabela USUARIO)
 @router.delete("/usuarios/membro-ufsc/{id_usuario}", tags=["Usuários e Perfis"], summary="Remover vínculo de Membro UFSC")
 def deletar_membro_ufsc(id_usuario: int, db: Session = Depends(get_db)):
     membro = db.query(models.MembroUfsc).filter(models.MembroUfsc.id_usuario == id_usuario).first()
@@ -231,7 +233,6 @@ def deletar_membro_ufsc(id_usuario: int, db: Session = Depends(get_db)):
     return {"mensagem": f"Vínculo de Membro UFSC do usuário {id_usuario} removido."}
 
 
-# Especializa um Usuario existente como OPERADOR do sistema
 @router.post("/usuarios/operador", response_model=schemas.OperadorResponse, tags=["Usuários e Perfis"])
 def vincular_operador(dados: schemas.OperadorCreate, db: Session = Depends(get_db)):
     op = models.Operador(**dados.model_dump())
@@ -245,12 +246,11 @@ def vincular_operador(dados: schemas.OperadorCreate, db: Session = Depends(get_d
         raise HTTPException(status_code=400, detail="Usuário inexistente ou já cadastrado como operador.")
 
 
-# Lista todos os operadores cadastrados
 @router.get("/usuarios/operador", response_model=List[schemas.OperadorResponse], tags=["Usuários e Perfis"], summary="Listar operadores")
 def listar_operadores(db: Session = Depends(get_db)):
     return db.query(models.Operador).all()
 
-# Remove o vínculo de Operador
+
 @router.delete("/usuarios/operador/{id_usuario}", tags=["Usuários e Perfis"], summary="Remover vínculo de Operador")
 def deletar_operador(id_usuario: int, db: Session = Depends(get_db)):
     op = db.query(models.Operador).filter(models.Operador.id_usuario == id_usuario).first()
@@ -261,7 +261,6 @@ def deletar_operador(id_usuario: int, db: Session = Depends(get_db)):
     return {"mensagem": f"Vínculo de Operador do usuário {id_usuario} removido."}
 
 
-# Especializa um Usuario existente como VISITANTE externo
 @router.post("/usuarios/visitante", response_model=schemas.VisitanteResponse, tags=["Usuários e Perfis"])
 def vincular_visitante(dados: schemas.VisitanteCreate, db: Session = Depends(get_db)):
     vis = models.Visitante(**dados.model_dump())
@@ -275,13 +274,11 @@ def vincular_visitante(dados: schemas.VisitanteCreate, db: Session = Depends(get
         raise HTTPException(status_code=400, detail="Usuário inexistente ou já cadastrado como visitante.")
 
 
-# Lista todos os visitantes cadastrados
 @router.get("/usuarios/visitante", response_model=List[schemas.VisitanteResponse], tags=["Usuários e Perfis"], summary="Listar visitantes")
 def listar_visitantes(db: Session = Depends(get_db)):
     return db.query(models.Visitante).all()
 
 
-# Remove o vínculo de Visitante
 @router.delete("/usuarios/visitante/{id_usuario}", tags=["Usuários e Perfis"], summary="Remover vínculo de Visitante")
 def deletar_visitante(id_usuario: int, db: Session = Depends(get_db)):
     vis = db.query(models.Visitante).filter(models.Visitante.id_usuario == id_usuario).first()
@@ -291,11 +288,11 @@ def deletar_visitante(id_usuario: int, db: Session = Depends(get_db)):
     db.commit()
     return {"mensagem": f"Vínculo de Visitante do usuário {id_usuario} removido."}
 
+
 # ==============================================================================
 # CRUD DE REIVINDICAÇÃO (Solicitações de Posse dos Itens)
 # ==============================================================================
 
-# Registra uma nova reivindicação onde o usuário informa a 'justificativa_segredo'
 @router.post("/reivindicacoes", response_model=schemas.ReivindicacaoResponse, status_code=status.HTTP_201_CREATED, tags=["Reivindicações"])
 def criar_reivindicacao(dados: schemas.ReivindicacaoCreate, db: Session = Depends(get_db)):
     nova = models.Reivindicacao(**dados.model_dump())
@@ -309,13 +306,11 @@ def criar_reivindicacao(dados: schemas.ReivindicacaoCreate, db: Session = Depend
         raise HTTPException(status_code=400, detail="Verifique se id_reivindicacao é único e se usuário/objeto existem.")
 
 
-# Lista todas as reivindicações feitas no sistema
 @router.get("/reivindicacoes", response_model=List[schemas.ReivindicacaoResponse], tags=["Reivindicações"])
 def listar_reivindicacoes(db: Session = Depends(get_db)):
     return db.query(models.Reivindicacao).all()
 
 
-# Permite ao operador aprovar ou rejeitar uma reivindicação alterando apenas o campo 'status'
 @router.put("/reivindicacoes/{id_reivindicacao}", response_model=schemas.ReivindicacaoResponse, tags=["Reivindicações"])
 def atualizar_status_reivindicacao(id_reivindicacao: int, dados: schemas.ReivindicacaoUpdate, db: Session = Depends(get_db)):
     reiv = db.query(models.Reivindicacao).filter(models.Reivindicacao.id_reivindicacao == id_reivindicacao).first()
@@ -327,7 +322,6 @@ def atualizar_status_reivindicacao(id_reivindicacao: int, dados: schemas.Reivind
     return reiv
 
 
-# Remove uma reivindicação pelo ID
 @router.delete("/reivindicacoes/{id_reivindicacao}", tags=["Reivindicações"])
 def deletar_reivindicacao(id_reivindicacao: int, db: Session = Depends(get_db)):
     reiv = db.query(models.Reivindicacao).filter(models.Reivindicacao.id_reivindicacao == id_reivindicacao).first()
@@ -342,7 +336,6 @@ def deletar_reivindicacao(id_reivindicacao: int, db: Session = Depends(get_db)):
 # CRUD DE CATÁLOGOS E LOCALIZAÇÃO (Tabelas Auxiliares e Hierarquia Espacial)
 # ==============================================================================
 
-# Cria e lista Blocos/Prédios do campus 
 @router.post("/blocos", response_model=schemas.BlocoPredioResponse, tags=["Locais e Catálogos"])
 def criar_bloco(dados: schemas.BlocoPredioCreate, db: Session = Depends(get_db)):
     novo = models.BlocoPredio(**dados.model_dump())
@@ -361,7 +354,6 @@ def listar_blocos(db: Session = Depends(get_db)):
     return db.query(models.BlocoPredio).all()
 
 
-# Atualiza e deleta Blocos/Prédios do campus 
 @router.put("/blocos/{id_bloco}", response_model=schemas.BlocoPredioResponse, tags=["Locais e Catálogos"], summary="Atualizar nome do bloco")
 def atualizar_bloco(id_bloco: int, dados: schemas.BlocoPredioBase, db: Session = Depends(get_db)):
     bloco = db.query(models.BlocoPredio).filter(models.BlocoPredio.id_bloco == id_bloco).first()
@@ -388,11 +380,9 @@ def deletar_bloco(id_bloco: int, db: Session = Depends(get_db)):
         return {"mensagem": f"Bloco {id_bloco} removido com sucesso."}
     except IntegrityError:
         db.rollback()
-        # Impede apagar um prédio que ainda possui salas vinculadas em LOCAL_ESPECIFICO
         raise HTTPException(status_code=400, detail="Não é possível excluir um bloco que possui locais específicos vinculados.")
 
 
-# Cria e lista Locais Específicos (salas/espaços vinculados a um id_bloco)
 @router.post("/locais", response_model=schemas.LocalEspecificoResponse, tags=["Locais e Catálogos"])
 def criar_local(dados: schemas.LocalEspecificoCreate, db: Session = Depends(get_db)):
     novo = models.LocalEspecifico(**dados.model_dump())
@@ -411,7 +401,6 @@ def listar_locais(db: Session = Depends(get_db)):
     return db.query(models.LocalEspecifico).all()
 
 
-# Atualiza e deleta Locais Específicos 
 @router.put("/locais/{id_local}", response_model=schemas.LocalEspecificoResponse, tags=["Locais e Catálogos"], summary="Atualizar local específico")
 def atualizar_local(id_local: int, dados: schemas.LocalEspecificoUpdate, db: Session = Depends(get_db)):
     local = db.query(models.LocalEspecifico).filter(models.LocalEspecifico.id_local == id_local).first()
@@ -442,7 +431,6 @@ def deletar_local(id_local: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Não é possível excluir um local vinculado a objetos cadastrados.")
 
 
-# Cria e lista Categorias de objetos (ex: Eletrônicos, Chaves)
 @router.post("/categorias", response_model=schemas.CategoriaResponse, tags=["Locais e Catálogos"])
 def criar_categoria(dados: schemas.CategoriaCreate, db: Session = Depends(get_db)):
     nova = models.Categoria(**dados.model_dump())
@@ -461,7 +449,6 @@ def listar_categorias(db: Session = Depends(get_db)):
     return db.query(models.Categoria).all()
 
 
-# Atualiza e deleta Categorias de objetos
 @router.put("/categorias/{id_categoria}", response_model=schemas.CategoriaResponse, tags=["Locais e Catálogos"], summary="Atualizar categoria")
 def atualizar_categoria(id_categoria: int, dados: schemas.CategoriaBase, db: Session = Depends(get_db)):
     cat = db.query(models.Categoria).filter(models.Categoria.id_categoria == id_categoria).first()
@@ -491,7 +478,6 @@ def deletar_categoria(id_categoria: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Não é possível excluir uma categoria em uso por objetos.")
 
 
-# Cria e lista Cores predominantes
 @router.post("/cores", response_model=schemas.CorResponse, tags=["Locais e Catálogos"])
 def criar_cor(dados: schemas.CorCreate, db: Session = Depends(get_db)):
     nova = models.Cor(**dados.model_dump())
@@ -510,7 +496,6 @@ def listar_cores(db: Session = Depends(get_db)):
     return db.query(models.Cor).all()
 
 
-# Atualiza e deleta Cores predominantes
 @router.put("/cores/{id_cor}", response_model=schemas.CorResponse, tags=["Locais e Catálogos"], summary="Atualizar cor")
 def atualizar_cor(id_cor: int, dados: schemas.CorBase, db: Session = Depends(get_db)):
     cor = db.query(models.Cor).filter(models.Cor.id_cor == id_cor).first()
@@ -540,8 +525,6 @@ def deletar_cor(id_cor: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Não é possível excluir uma cor em uso por objetos.")
 
 
-
-# Cria e lista os Status possíveis do ciclo de vida do objeto
 @router.post("/status", response_model=schemas.StatusResponse, status_code=status.HTTP_201_CREATED, tags=["Locais e Catálogos"], summary="Criar novo status")
 def criar_status(dados: schemas.StatusCreate, db: Session = Depends(get_db)):
     novo = models.Status(**dados.model_dump())
@@ -560,7 +543,6 @@ def listar_status(db: Session = Depends(get_db)):
     return db.query(models.Status).all()
 
 
-# Atualiza e deleta Status
 @router.put("/status/{id_status}", response_model=schemas.StatusResponse, tags=["Locais e Catálogos"], summary="Atualizar descrição do status")
 def atualizar_status(id_status: int, dados: schemas.StatusBase, db: Session = Depends(get_db)):
     st = db.query(models.Status).filter(models.Status.id_status == id_status).first()
@@ -586,7 +568,6 @@ def deletar_status(id_status: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Não é possível excluir um status vinculado a objetos.")
 
 
-# Cria e lista os Tipos de Registro (Item Encontrado vs Item Perdido)
 @router.post("/tipos-registro", response_model=schemas.TipoRegistroResponse, status_code=status.HTTP_201_CREATED, tags=["Locais e Catálogos"], summary="Criar novo tipo de registro")
 def criar_tipo_registro(dados: schemas.TipoRegistroCreate, db: Session = Depends(get_db)):
     novo = models.TipoRegistro(**dados.model_dump())
@@ -605,7 +586,6 @@ def listar_tipos_registro(db: Session = Depends(get_db)):
     return db.query(models.TipoRegistro).all()
 
 
-# Atualiza e deleta Tipos de Registro
 @router.put("/tipos-registro/{id_tipo}", response_model=schemas.TipoRegistroResponse, tags=["Locais e Catálogos"], summary="Atualizar tipo de registro")
 def atualizar_tipo_registro(id_tipo: int, dados: schemas.TipoRegistroBase, db: Session = Depends(get_db)):
     tipo = db.query(models.TipoRegistro).filter(models.TipoRegistro.id_tipo == id_tipo).first()
@@ -635,7 +615,6 @@ def deletar_tipo_registro(id_tipo: int, db: Session = Depends(get_db)):
 # TABELAS SATÉLITES (Auditoria, Imagens e Notificações)
 # ==============================================================================
 
-# Vincula o caminho/URL de uma foto a um objeto existente
 @router.post("/imagens", response_model=schemas.ImagemResponse, tags=["Auditoria, Imagens e Notificações"])
 def adicionar_imagem(dados: schemas.ImagemCreate, db: Session = Depends(get_db)):
     nova = models.Imagem(**dados.model_dump())
@@ -654,7 +633,6 @@ def listar_imagens(db: Session = Depends(get_db)):
     return db.query(models.Imagem).all()
 
 
-# Atualiza e deleta imagem (Alterar caminho/URL ou remover foto de um objeto)
 @router.put("/imagens/{id_imagem}", response_model=schemas.ImagemResponse, tags=["Auditoria, Imagens e Notificações"], summary="Alterar caminho/URL da imagem")
 def atualizar_imagem(id_imagem: int, dados: schemas.ImagemUpdate, db: Session = Depends(get_db)):
     img = db.query(models.Imagem).filter(models.Imagem.id_imagem == id_imagem).first()
@@ -676,7 +654,6 @@ def deletar_imagem(id_imagem: int, db: Session = Depends(get_db)):
     return {"mensagem": f"Imagem {id_imagem} removida com sucesso."}
 
 
-# Registra uma mensagem de notificação enviada a um usuário sobre um objeto
 @router.post("/notificacoes", response_model=schemas.NotificacaoResponse, tags=["Auditoria, Imagens e Notificações"])
 def criar_notificacao(dados: schemas.NotificacaoCreate, db: Session = Depends(get_db)):
     nova = models.Notificacao(**dados.model_dump())
@@ -695,7 +672,6 @@ def listar_notificacoes(db: Session = Depends(get_db)):
     return db.query(models.Notificacao).all()
 
 
-# Atualiza e deleta notificacao
 @router.put("/notificacoes/{id_notificacao}", response_model=schemas.NotificacaoResponse, tags=["Auditoria, Imagens e Notificações"], summary="Editar texto da notificação")
 def atualizar_notificacao(id_notificacao: int, dados: schemas.NotificacaoUpdate, db: Session = Depends(get_db)):
     notif = db.query(models.Notificacao).filter(models.Notificacao.id_notificacao == id_notificacao).first()
@@ -717,7 +693,6 @@ def deletar_notificacao(id_notificacao: int, db: Session = Depends(get_db)):
     return {"mensagem": f"Notificação {id_notificacao} removida com sucesso."}
 
 
-# Grava um evento na trilha de auditoria (quem fez qual operação e quando)
 @router.post("/auditoria", response_model=schemas.HistoricoAuditoriaResponse, tags=["Auditoria, Imagens e Notificações"])
 def registrar_auditoria(dados: schemas.HistoricoAuditoriaCreate, db: Session = Depends(get_db)):
     novo = models.HistoricoAuditoria(**dados.model_dump())
@@ -736,8 +711,7 @@ def listar_auditoria(db: Session = Depends(get_db)):
     return db.query(models.HistoricoAuditoria).all()
 
 
-# Atualiza e deleta um evento de auditoria
-@router.put("/auditoria/{id_historico}", response_model=schemas.HistoricoAuditoriaResponse, tags=["Auditoria, Imagens e Notificações"], summary="Corrigir registro de auditoria")
+@router.put("/auditoria/{id_historico}", response_model=schemas.HistoricoAuditoriaResponse, tags=["Auditoria, Imagens e Notificasjoner"], summary="Corrigir registro de auditoria")
 def atualizar_auditoria(id_historico: int, dados: schemas.HistoricoAuditoriaUpdate, db: Session = Depends(get_db)):
     hist = db.query(models.HistoricoAuditoria).filter(models.HistoricoAuditoria.id_historico == id_historico).first()
     if not hist:

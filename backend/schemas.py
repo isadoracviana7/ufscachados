@@ -157,6 +157,9 @@ class ObjetoResponse(ObjetoBase):                       # Herda ObjetoBase + Obj
     id_objeto: int
     model_config = ConfigDict(from_attributes=True)
 
+class ObjetoOperadorResponse(ObjetoResponse):           # Resposta estendida exclusiva para operadores
+    detalhe_seguranca_oculto: Optional[str] = None
+
 
 # ==========================================
 # TABELAS SATÉLITES (AUDITORIA, IMAGEM, NOTIFICAÇÃO, REIVINDICAÇÃO)
