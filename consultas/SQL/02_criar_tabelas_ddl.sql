@@ -1,0 +1,116 @@
+-- Geração de Modelo físico corrigido para PostgreSQL
+-- UFSCachados
+
+CREATE TABLE STATUS (
+    id_status INTEGER PRIMARY KEY,
+    descricao TEXT
+);
+
+CREATE TABLE TIPO_REGISTRO (
+    id_tipo INTEGER PRIMARY KEY,
+    descricao TEXT
+);
+
+CREATE TABLE COR (
+    id_cor INTEGER PRIMARY KEY,
+    nome VARCHAR(100)
+);
+
+CREATE TABLE CATEGORIA (
+    id_categoria INTEGER PRIMARY KEY,
+    nome VARCHAR(100)
+);
+
+CREATE TABLE BLOCO_PREDIO (
+    id_bloco INTEGER PRIMARY KEY,
+    nome VARCHAR(100)
+);
+
+CREATE TABLE LOCAL_ESPECIFICO (
+    id_local INTEGER PRIMARY KEY,
+    id_bloco INTEGER,
+    nome VARCHAR(100),
+    FOREIGN KEY (id_bloco) REFERENCES BLOCO_PREDIO (id_bloco)
+);
+
+CREATE TABLE USUARIO (
+    id_usuario INTEGER PRIMARY KEY,
+    nome VARCHAR(100),
+    email VARCHAR(100),
+    cpf VARCHAR(14)
+);
+
+-- Subclasses de Usuário (id_usuario é PK e FK ao mesmo tempo)
+CREATE TABLE MEMBRO_UFSC (
+    id_usuario INTEGER PRIMARY KEY,
+    matricula_ufsc INTEGER,
+    FOREIGN KEY (id_usuario) REFERENCES USUARIO (id_usuario)
+);
+
+CREATE TABLE VISITANTE (
+    id_usuario INTEGER PRIMARY KEY,
+    FOREIGN KEY (id_usuario) REFERENCES USUARIO (id_usuario)
+);
+
+CREATE TABLE OPERADOR (
+    id_usuario INTEGER PRIMARY KEY,
+    FOREIGN KEY (id_usuario) REFERENCES USUARIO (id_usuario)
+);
+
+CREATE TABLE OBJETO (
+    id_objeto INTEGER PRIMARY KEY,
+    descricao_publica TEXT,
+    detalhe_seguranca_oculto TEXT,
+    data_registro DATE,
+    data_vencimento DATE,
+    id_usuario_cadastro INTEGER,
+    id_status INTEGER,
+    id_cor INTEGER,
+    id_categoria INTEGER,
+    id_local INTEGER,
+    id_tipo INTEGER,
+    FOREIGN KEY (id_usuario_cadastro) REFERENCES USUARIO (id_usuario),
+    FOREIGN KEY (id_status) REFERENCES STATUS (id_status),
+    FOREIGN KEY (id_cor) REFERENCES COR (id_cor),
+    FOREIGN KEY (id_categoria) REFERENCES CATEGORIA (id_categoria),
+    FOREIGN KEY (id_local) REFERENCES LOCAL_ESPECIFICO (id_local),
+    FOREIGN KEY (id_tipo) REFERENCES TIPO_REGISTRO (id_tipo)
+);
+
+CREATE TABLE HISTORICO_AUDITORIA (
+    id_historico INTEGER PRIMARY KEY,
+    id_objeto INTEGER,
+    id_usuario INTEGER,
+    data_hora TIMESTAMP,
+    tipo_transacao VARCHAR(100),
+    FOREIGN KEY (id_objeto) REFERENCES OBJETO (id_objeto),
+    FOREIGN KEY (id_usuario) REFERENCES USUARIO (id_usuario)
+);
+
+CREATE TABLE IMAGEM (
+    id_imagem INTEGER PRIMARY KEY,
+    id_objeto INTEGER,
+    url_caminho TEXT,
+    FOREIGN KEY (id_objeto) REFERENCES OBJETO (id_objeto)
+);
+
+CREATE TABLE NOTIFICACAO (
+    id_notificacao INTEGER PRIMARY KEY,
+    id_objeto INTEGER,
+    id_usuario INTEGER,
+    data_hora TIMESTAMP,
+    mensagem TEXT,
+    FOREIGN KEY (id_objeto) REFERENCES OBJETO (id_objeto),
+    FOREIGN KEY (id_usuario) REFERENCES USUARIO (id_usuario)
+);
+
+CREATE TABLE REIVINDICACAO (
+    id_reivindicacao INTEGER PRIMARY KEY,
+    data_hora TIMESTAMP,
+    justificativa_segredo TEXT,
+    status VARCHAR(30),
+    id_usuario INTEGER,
+    id_objeto INTEGER,
+    FOREIGN KEY (id_usuario) REFERENCES USUARIO (id_usuario),
+    FOREIGN KEY (id_objeto) REFERENCES OBJETO (id_objeto)
+);
