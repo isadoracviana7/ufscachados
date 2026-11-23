@@ -15,7 +15,7 @@ router = APIRouter()
 
 # Modelos tentados em ordem: se o principal estiver sobrecarregado (503), cai para o próximo.
 # Pode ser sobrescrito no .env: GEMINI_MODELS=modelo1,modelo2,modelo3
-MODELOS_PADRAO = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+MODELOS_PADRAO = ["gemini-3.5-flash-lite", "gemini-3.5-flash"]
 TENTATIVAS_POR_MODELO = 3       # Quantas vezes repetir o mesmo modelo antes de trocar
 ERROS_TEMPORARIOS = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "INTERNAL", "504", "DEADLINE")
 
