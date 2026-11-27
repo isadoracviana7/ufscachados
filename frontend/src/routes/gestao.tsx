@@ -458,22 +458,38 @@ function Admin() {
                 : resource.fields.filter((f) => resource.editFields.includes(f.key))
               ).map((f) => (
                 <Field key={f.key} label={`${fieldLabel(f.key)}${f.required && isNew ? " *" : ""}`}>
-                  <input
-                    name={f.key}
-                    type={f.type}
-                    defaultValue={String(edit[f.key] ?? "")}
-                    placeholder={
-                      !isNew && f.key === "detalhe_seguranca_oculto"
-                        ? "Deixe em branco para manter o segredo atual"
-                        : undefined
-                    }
-                    required={f.required && isNew}
-                    min={f.type === "number" ? 1 : undefined}
-                    onChange={(e) => {
-                      if (f.key === resource.idKey)
-                        setEdit({ ...edit, [f.key]: Number(e.target.value) });
-                    }}
-                  />
+                  {f.key === "status" && path === "reivindicacoes" ? (
+                    <select
+                      name={f.key}
+                      defaultValue={String(edit[f.key] ?? "EM_ANALISE")}
+                      required={f.required && isNew}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      onChange={(e) => {
+                        setEdit({ ...edit, [f.key]: e.target.value });
+                      }}
+                    >
+                      <option value="EM_ANALISE">EM_ANALISE</option>
+                      <option value="APROVADA">APROVADA</option>
+                      <option value="REJEITADA">REJEITADA</option>
+                    </select>
+                  ) : (
+                    <input
+                      name={f.key}
+                      type={f.type}
+                      defaultValue={String(edit[f.key] ?? "")}
+                      placeholder={
+                        !isNew && f.key === "detalhe_seguranca_oculto"
+                          ? "Deixe em branco para manter o segredo atual"
+                          : undefined
+                      }
+                      required={f.required && isNew}
+                      min={f.type === "number" ? 1 : undefined}
+                      onChange={(e) => {
+                        if (f.key === resource.idKey)
+                          setEdit({ ...edit, [f.key]: Number(e.target.value) });
+                      }}
+                    />
+                  )}
                 </Field>
               ))}
               <ErrorMessage message={error} />
