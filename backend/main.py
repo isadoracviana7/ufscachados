@@ -71,7 +71,12 @@ app = FastAPI(
 # CORS (permite que o front-end hospedado no Vercel chame esta API)
 # ==============================================================================
 # Defina CORS_ORIGINS no .env separando por vírgula, ex.: https://meu-app.vercel.app,http://localhost:3000
-origens = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if o.strip()]
+origens = [
+    o.strip() 
+    for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173,http://localhost:8080,http://127.0.0.1:8080").split(",") 
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origens,

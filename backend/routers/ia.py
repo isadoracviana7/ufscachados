@@ -21,7 +21,7 @@ ERROS_TEMPORARIOS = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "500", "
 
 
 def _chamar_gemini_com_fallback(client, prompt):
-    """Tenta cada modelo com retry e backoff exponencial em erros temporários. Levanta o último erro se tudo falhar."""
+    #Tenta cada modelo com retry e backoff exponencial em erros temporários. Levanta o último erro se tudo falhar.
     modelos = [m.strip() for m in os.getenv("GEMINI_MODELS", ",".join(MODELOS_PADRAO)).split(",") if m.strip()]
     ultimo_erro = None
     for modelo in modelos:

@@ -7,9 +7,9 @@
 #prontos para serem salvos ou pesquoisados no banco sem precisar limpar o texto livre
 
 
-from datetime import date, datetime                             # Traz os tipos reais de data deata hora do Python e bloqueia vlaores impossiveis
+from datetime import date, datetime                             # Traz os tipos reais de data, data hora do Python e bloqueia valores impossiveis
 from typing import Optional, List                               # Indicacao de campo nao obrigatorio,  e campos com lista de elementops de determinado tipo
-from pydantic import BaseModel, EmailStr, Field, ConfigDict     # Improtar a classe mae de todos os schemas, formato especial do email, field permite adicionar regras de tamanho e configDict é o dicionario de ocnfiguracoes internas do Pydantic v2
+from pydantic import BaseModel, EmailStr, Field, ConfigDict     # Importa a classe mae de todos os schemas, formato especial do email, field permite adicionar regras de tamanho e configDict é o dicionario de configuracoes internas do Pydantic v2
 
 
 # ==========================================
@@ -91,7 +91,7 @@ class UsuarioBase(BaseModel):
     cpf: str = Field(..., min_length=11, max_length=14)
 
 class UsuarioCreate(UsuarioBase):                           
-    id_usuario: int = Field(..., gt=0, examples=[100], description="Use ID >= 100 para não colidir com a carga inicial (1 a 6)")
+    id_usuario: int = Field(..., gt=0, examples=[100], description="ID >= 100 para não colidir com a carga inicial")
 
 class UsuarioUpdate(BaseModel):
     nome: Optional[str] = Field(None, min_length=2, max_length=100)     
@@ -142,7 +142,7 @@ class ObjetoBase(BaseModel):
     id_tipo: int = Field(..., gt=0)
 
 class ObjetoCreate(ObjetoBase):
-    id_objeto: int = Field(..., gt=0, examples=[100], description="Use ID >= 100 para não colidir com a carga inicial (1 a 10)")
+    id_objeto: int = Field(..., gt=0, examples=[100], description="ID >= 100 para não colidir com a carga inicial")
     # O segredo entra apenas na criação/atualização, nunca na resposta pública
     detalhe_seguranca_oculto: str = Field(..., min_length=3, examples=["Adesivo azul na tampa interna"])
 
@@ -209,7 +209,7 @@ class ReivindicacaoCreate(BaseModel):
     id_reivindicacao: int = Field(..., gt=0, examples=[100], description="Use ID >= 100 para não colidir com a carga inicial (1 a 5)")
     data_hora: datetime
     justificativa_segredo: str = Field(..., min_length=5)
-    status: str = Field(default="PENDENTE", max_length=30)
+    status: str = Field(default="EM_ANALISE", max_length=30)
     id_usuario: int = Field(..., gt=0)
     id_objeto: int = Field(..., gt=0)
 

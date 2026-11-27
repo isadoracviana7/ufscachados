@@ -88,7 +88,7 @@ def avaliar_reivindicacao(dados: DecisaoReivindicacao, db: Session = Depends(get
     prox_id_notif = (db.query(func.max(models.Notificacao.id_notificacao)).scalar() or 0) + 1
 
     if dados.aprovada:
-        reiv.status = "APROVADA"
+        reiv.status = models.StatusReivindicacao.APROVADA
         objeto.id_status = 3  # Devolvido ao Dono
         tipo_log = "BAIXA_DEVOLUCAO"
         msg_usuario = f"Sua reivindicação para '{objeto.descricao_publica}' foi APROVADA! Retire o item na recepção."
@@ -97,12 +97,12 @@ def avaliar_reivindicacao(dados: DecisaoReivindicacao, db: Session = Depends(get
         outras = db.query(models.Reivindicacao).filter(
             models.Reivindicacao.id_objeto == objeto.id_objeto,
             models.Reivindicacao.id_reivindicacao != reiv.id_reivindicacao,
-            models.Reivindicacao.status == "EM_ANALISE"
+            models.Reivindicacao.status == models.StatusReivindicacao.EM_ANALISE
         ).all()
         for outra in outras:
-            outra.status = "REJEITADA"
+            outra.status = models.StatusReivindicacao.REJEITADA
     else:
-        reiv.status = "REJEITADA"
+        reiv.status = models.StatusReivindicacao.REJEITADA
         objeto.id_status = 1  # Volta para Aguardando Retirada
         tipo_log = "REIVINDICACAO_REJEITADA"
         msg_usuario = f"Sua reivindicação para '{objeto.descricao_publica}' foi REJEITADA pois o detalhe de segurança não conferiu."

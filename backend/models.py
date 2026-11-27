@@ -5,10 +5,26 @@
 # Define os vinculos reais entre tabelas por meio das chaves estrangeiras
 # Facilita a navegacao no Python como acessar itens sem precisar montar JOIN manualmente para leituras simples
 
-from sqlalchemy import Column, Integer, String, Text, Date, DateTime, ForeignKey    # Traduzem os tipos do Python para os tipos importados e criam chaves estrangeiras
+import enum
+from enum import Enum
+from sqlalchemy import Column, Integer, String, Text, Date, DateTime, ForeignKey, Enum as SQLAlchemyEnum    # Traduzem os tipos do Python para os tipos importados e criam chaves estrangeiras
 from sqlalchemy.orm import relationship                                             # Cria ligacoes logicas sem a necessidade de usar um join
 from database import Base                                                           # Importa a classe-mae criada no database.py
 
+# Auxiliar variasveis fixas status da Reivindicacao
+class StatusReivindicacao(str, enum.Enum):
+    EM_ANALISE = "EM_ANALISE"
+    APROVADA = "APROVADA"
+    REJEITADA = "REJEITADA"
+
+# Auxiliar variaveis transacao de Auditoria
+class TipoTransacaoEnum(str, Enum):
+    BAIXA_DEVOLUCAO = "BAIXA_DEVOLUCAO"
+    REIVINDICACAO_REJEITADA = "REIVINDICACAO_REJEITADA"
+    ENCONTRADO_PLATAFORMA = "ENCONTRADO_PLATAFORMA"
+    ENCONTRADO_EXTERNO = "ENCONTRADO_EXTERNO"
+    CADASTRO_OBJETO = "CADASTRO_OBJETO"
+    CADASTRO_INICIAL = "CADASTRO_INICIAL"
 
 # Tabelas de dominio/ catalogo: São independente(sem fk) - Status, TipoRegistro, Cor, Categoria, BlocoPredio
 class Status(Base):                                                     # Entra no catalogo interno do SQLAlchemy 
@@ -183,7 +199,10 @@ class Reivindicacao(Base):
     id_reivindicacao = Column(Integer, primary_key=True, index=True)
     data_hora = Column(DateTime, nullable=False)
     justificativa_segredo = Column(Text, nullable=False)
-    status = Column(String(30), nullable=False, default="PENDENTE")                 #Define um valor automatico caso nada seja informado na insercao
+    status = Column(
+        SQLAlchemyEnum(StatusReivindicacao), 
+        nullable=False, 
+        default=StatusReivindicacao.EM_ANALISE)               #Define um valor automatico caso nada seja informado na insercao
     id_usuario = Column(Integer, ForeignKey("usuario.id_usuario"), nullable=False)
     id_objeto = Column(Integer, ForeignKey("objeto.id_objeto"), nullable=False)
 

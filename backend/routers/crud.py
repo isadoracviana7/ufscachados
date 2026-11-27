@@ -295,6 +295,24 @@ def deletar_visitante(id_usuario: int, db: Session = Depends(get_db)):
 
 @router.post("/reivindicacoes", response_model=schemas.ReivindicacaoResponse, status_code=status.HTTP_201_CREATED, tags=["Reivindicações"])
 def criar_reivindicacao(dados: schemas.ReivindicacaoCreate, db: Session = Depends(get_db)):
+    # 1. Verifica se o objeto realmente existe
+    objeto = db.query(models.Objeto).filter(models.Objeto.id_objeto == dados.id_objeto).first()
+    if not objeto:
+        raise HTTPException(status_code=404, detail="Objeto não encontrado.")
+
+    # 2. Regra de Negócio: Verifica se já existe uma reivindicação ativa (EM_ANALISE) para este objeto
+    reivindicacao_existente = db.query(models.Reivindicacao).filter(
+        models.Reivindicacao.id_objeto == dados.id_objeto,
+        models.Reivindicacao.status == models.StatusReivindicacao.EM_ANALISE
+    ).first()
+
+    if reivindicacao_existente:
+        raise HTTPException(
+            status_code=400, 
+            detail="Este objeto já possui uma reivindicação em processo de análise por outro usuário."
+        )
+
+    # 3. Se não houver conflito, cria a nova reivindicação
     nova = models.Reivindicacao(**dados.model_dump())
     try:
         db.add(nova)
